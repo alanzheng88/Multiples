@@ -32,9 +32,11 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
     private final String TAG = MainActivity.this.getClass().getSimpleName();
     private static final String API_URL = "https://qrng.anu.edu.au/API/jsonI.php?length=4&type=uint8";
     private static final int NUMBERS_COUNT = 4;
-    private static final int CONNECTION_READ_TIMEOUT = 10000;
-    private static final int CONNECTION_TIMEOUT = 40000;
+    private static final int CONNECTION_READ_TIMEOUT = 15000;
+    private static final int CONNECTION_TIMEOUT = 50000;
     private static final int CONNECTION_INPUT_STREAM_LINE_LENGTH = 5000;
+
+    private String mUnderline;
 
     private TextView mRandomNumber1TextView;
     private TextView mRandomNumber2TextView;
@@ -48,40 +50,67 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
     private ConnectivityManager mConnectMgr;
 
+    /**
+     * Reads an input stream from a connection of specified length
+     * @param stream obtained through a connection
+     * @param len number of characters to be read from input stream
+     * @return result of the input stream
+     * @throws IOException
+     */
     private String readIt(InputStream stream, int len) throws IOException {
         Reader reader = new InputStreamReader(stream, "UTF-8");
         char[] buffer = new char[len];
-        reader.read(buffer);
+        // write the data from the stream into the buffer
         reader.read(buffer);
         return new String(buffer);
     }
 
+    /**
+     *
+     * @param remoteUrl url of the API to read information from
+     * @return a string with the results of the API
+     * @throws IOException
+     */
     private String readJsonData(String remoteUrl) throws IOException {
         InputStream is = null;
 
         URL url = new URL(remoteUrl);
+        // parse url, finds protocol and creates the HttpURLConnection object
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
 
         try {
+            // configure request for API
             conn.setReadTimeout(CONNECTION_READ_TIMEOUT);
             conn.setConnectTimeout(CONNECTION_TIMEOUT);
             conn.setRequestMethod("GET");
             conn.setDoInput(true);
-            conn.connect();
+            // conn.connect() is not required as getResponseCode()
+            // will implicitly perform the connection
             if (conn.getResponseCode() == 200) {
                 is = conn.getInputStream();
+                // CONNECTION_INPUT_STREAM_LINE_LENGTH length is assumed to be greater
+                // than the length of the result coming from the stream
                 return readIt(is, CONNECTION_INPUT_STREAM_LINE_LENGTH);
             }
         } finally {
             if (is != null) {
+                // clean up connection now that we're done
                 is.close();
                 conn.disconnect();
             }
         }
 
+        // this should never be reached
         return null;
     }
 
+    /**
+     * Handles the case where the TextView for the random numbers are dragged
+     * and displays a shadow for the TextView being dragged
+     * @param v the TextView being dragged
+     * @param event the actions being performed on the TextView
+     * @return true if actions are successful, false otherwise
+     */
     @Override
     public boolean onTouch(View v, MotionEvent event) {
         Log.d(TAG, "event is: " + MotionEvent.actionToString(event.getAction()));
@@ -95,6 +124,13 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         return false;
     }
 
+    /**
+     * Handles drag events when a random number TextView is dragged
+     * over one of the TextViews displaying a list of multiples of numbers
+     * @param v the target view which responds to events when something is dragged over it
+     * @param event holds information for the object being dragged
+     * @return true if drag is successful, false otherwise
+     */
     @Override
     public boolean onDrag(View v, DragEvent event) {
 
@@ -102,24 +138,28 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         TextView targetTextView;
 
         switch (event.getAction()) {
+            // triggered when drag is initiated
             case DragEvent.ACTION_DRAG_STARTED:
-                dragView = (TextView) event.getLocalState();
-                dragView.setVisibility(View.INVISIBLE);
                 break;
+            // triggered when an object drag enters a target view (entering any of the 4 multiples boxes)
             case DragEvent.ACTION_DRAG_ENTERED:
+                // change the background color when we enter the target view
                 setBackgroundColorToView(v);
                 break;
+            // triggered when an object drag exits the target view (leaving any of the 4 multiples boxes)
             case DragEvent.ACTION_DRAG_EXITED:
+                // remove the background color when we leave the target view
                 removeBackgroundColorFromView(v);
                 break;
             case DragEvent.ACTION_DROP:
                 Log.d(TAG, "drag dropped");
-
+                // retrieve information for the TextView being dragged
                 dragView = (TextView) event.getLocalState();
                 String dragViewText = dragView.getText().toString();
-                String underline = getResources().getString(R.string.underline);
-                if (dragViewText.equals(underline)) {
-                    dragView.setVisibility(View.VISIBLE);
+                // quick sanity check to make sure that we're not going to
+                // end up dropping an empty TextView
+                // an mUnderline -> _____ indicates the TextView is empty
+                if (dragViewText.equals(mUnderline)) {
                     return false;
                 }
 
@@ -136,91 +176,133 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
 
                 if (!isDropSuccessful) {
                     Log.d(TAG, "status: not dropped");
+                    // drag is not successful as it was dragged to
+                    // an invalid multiple (e.g: the number 67 dragged to 'Multiples of 3')
                     dragView.setVisibility(View.VISIBLE);
                     return false;
                 }
 
-                break;
+                // drop is successful and made inside of target view
+                // (inside one of the multiples boxes)
+                dragView.setVisibility(View.INVISIBLE);
+                return true;
+
             case DragEvent.ACTION_DRAG_ENDED:
-                if (!event.getResult()) {
-                    dragView = (TextView) event.getLocalState();
+                // reset background color of target view when we finish dragging
+                removeBackgroundColorFromView(v);
+
+                dragView = (TextView) event.getLocalState();
+                dragViewText = dragView.getText().toString();
+                if (dragViewText.equals(mUnderline)) {
+                    // reset the TextView to its original state
+                    // (The TextView has an underline -> ______ as its value)
+                    // if it is being dragged
                     dragView.setVisibility(View.VISIBLE);
+                    return false;
                 }
 
-                removeBackgroundColorFromView(v);
+                // getResult() returns true if dragged object enters and drops
+                // inside target view (inside the Multiple boxes), false otherwise
+                if (!event.getResult()) {
+                    // drop is unsuccessful and made outside of target view
+                    // (outside of the multiples boxes)
+                    dragView.setVisibility(View.VISIBLE);
+                    return false;
+                }
+
                 break;
         }
 
         return true;
     }
 
+    /**
+     * Sets the background color to a particular color when
+     * a TextView for the random numbers is dragged over
+     * the target view (the Multiples boxes)
+     * @param v the target view
+     */
     private void setBackgroundColorToView(View v) {
         TextView targetTextView = (TextView) v;
         int color = ResourcesCompat.getColor(getResources(), R.color.colorNavyBlue, null);
         targetTextView.setBackgroundColor(color);
     }
 
+    /**
+     * Removes the background color when a TextView leaves
+     * the target view
+     * @param v the target view
+     */
     private void removeBackgroundColorFromView(View v) {
         TextView targetTextView = (TextView) v;
         int color = ResourcesCompat.getColor(getResources(), R.color.colorGrey, null);
         targetTextView.setBackgroundColor(color);
     }
 
-    private boolean processMultiples(int number, boolean dropped, TextView targetTextView) {
+    /**
+     * Handles different cases for the different target views
+     * @param number the number associated to the TextView being dragged
+     * @param isDropSuccessful determines whether the drop has been successful
+     * @param targetTextView the target view
+     * @return true if the drop is successful meaning that the number has
+     * been dropped in the box associated with the correct multiple, false otherwise
+     */
+    private boolean processMultiples(int number, boolean isDropSuccessful, TextView targetTextView) {
         if (targetTextView.getId() == mMultipleOf2TextView.getId()) {
-            dropped = processMultiplesOf2(dropped, number, targetTextView);
+            isDropSuccessful = processMultiplesOf2(isDropSuccessful, number, targetTextView);
         } else if (targetTextView.getId() == mMultipleOf3TextView.getId()) {
-            dropped = processMultiplesOf3(dropped, number, targetTextView);
+            isDropSuccessful = processMultiplesOf3(isDropSuccessful, number, targetTextView);
         } else if (targetTextView.getId() == mMultipleOf5TextView.getId()) {
-            dropped = processMultiplesOf5(dropped, number, targetTextView);
+            isDropSuccessful = processMultiplesOf5(isDropSuccessful, number, targetTextView);
         } else if (targetTextView.getId() == mMultipleOf10TextView.getId()) {
-            dropped = processMultiplesOf10(dropped, number, targetTextView);
+            isDropSuccessful = processMultiplesOf10(isDropSuccessful, number, targetTextView);
         }
-        return dropped;
+        return isDropSuccessful;
     }
 
-    private boolean processMultiplesOf2(boolean dropped, int number, TextView targetTextView) {
+
+    private boolean processMultiplesOf2(boolean isDropSuccessful, int number, TextView targetTextView) {
         Log.d(TAG, "in here: multiple of 2");
         boolean isMultipleOf2 = number % 2 == 0;
         if (isMultipleOf2) {
             Log.d(TAG, "dropped onto multiple of 2");
             insertNumberIntoTextView(targetTextView, number);
-            dropped = true;
+            isDropSuccessful = true;
         }
-        return dropped;
+        return isDropSuccessful;
     }
 
-    private boolean processMultiplesOf3(boolean dropped, int number, TextView targetTextView) {
+    private boolean processMultiplesOf3(boolean isDropSuccessful, int number, TextView targetTextView) {
         Log.d(TAG, "in here: multiple of 3");
         boolean isMultipleOf3 = number % 3 == 0;
         if (isMultipleOf3) {
             insertNumberIntoTextView(targetTextView, number);
             Log.d(TAG, "dropped onto multiple of 3");
-            dropped = true;
+            isDropSuccessful = true;
         }
-        return dropped;
+        return isDropSuccessful;
     }
 
-    private boolean processMultiplesOf5(boolean dropped, int number, TextView targetTextView) {
+    private boolean processMultiplesOf5(boolean isDropSuccessful, int number, TextView targetTextView) {
         Log.d(TAG, "in here: multiple of 5");
         boolean isMultipleOf5 = number % 5 == 0;
         if (isMultipleOf5) {
             insertNumberIntoTextView(targetTextView, number);
             Log.d(TAG, "dropped onto multiple of 5");
-            dropped = true;
+            isDropSuccessful = true;
         }
-        return dropped;
+        return isDropSuccessful;
     }
 
-    private boolean processMultiplesOf10(boolean dropped, int number, TextView targetTextView) {
+    private boolean processMultiplesOf10(boolean isDropSuccessful, int number, TextView targetTextView) {
         Log.d(TAG, "in here: multiple of 10");
         boolean isMultipleOf10 = number % 10 == 0;
         if (isMultipleOf10) {
             insertNumberIntoTextView(targetTextView, number);
             Log.d(TAG, "dropped onto multiple of 10");
-            dropped = true;
+            isDropSuccessful = true;
         }
-        return dropped;
+        return isDropSuccessful;
     }
 
     private void insertNumberIntoTextView(TextView tv, int number) {
@@ -229,8 +311,19 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         tv.setText(newText);
     }
 
+    /**
+     * Asynchronous task for fetching random numbers in the background
+     * and updating the associated random number TextViews when the
+     * information is ready
+     */
     private class GetRandomNumbersTask extends AsyncTask<String, Void, String> {
 
+        /**
+         * Fetch information from the API provided by urls[0]
+         * @param urls a list of urls but in our case we only care
+         *             about the first one
+         * @return a json string representing data retrieved from the API
+         */
         @Override
         protected String doInBackground(String... urls) {
             try {
@@ -242,6 +335,11 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
             return null;
         }
 
+        /**
+         * Process the json data and sets the corresponding TextViews
+         * for the random numbers
+         * @param jsonData the information being returned from doInBackground()
+         */
         @Override
         protected void onPostExecute(String jsonData) {
             try {
@@ -249,11 +347,12 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
                     JSONObject jsonObject = new JSONObject(jsonData);
                     JSONArray jsonArray = jsonObject.getJSONArray("data");
                     String[] currentNumbers = new String[NUMBERS_COUNT];
+                    // quick sanity check to make sure all 4 random
+                    // numbers are present
                     if (jsonArray.length() == 4) {
-                        mRandomNumber1TextView.setVisibility(View.VISIBLE);
-                        mRandomNumber2TextView.setVisibility(View.VISIBLE);
-                        mRandomNumber3TextView.setVisibility(View.VISIBLE);
-                        mRandomNumber4TextView.setVisibility(View.VISIBLE);
+                        // make all TextViews for the random numbers
+                        // visible in case they were hidden before
+                        setAllRandomNumberTextVisible();
                         String randomNumber1 = jsonArray.get(0).toString();
                         String randomNumber2 = jsonArray.get(1).toString();
                         String randomNumber3 = jsonArray.get(2).toString();
@@ -267,6 +366,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
                         mRandomNumber3TextView.setText(randomNumber3);
                         mRandomNumber4TextView.setText(randomNumber4);
                     }
+                    // display the numbers retrieved from the API as a Toast message
                     Toast.makeText(MainActivity.this,
                             TextUtils.join(", ", currentNumbers),
                             Toast.LENGTH_LONG).show();
@@ -287,6 +387,10 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        // retrieve 'underline' string resource for later use
+        mUnderline = getResources().getString(R.string.underline);
+
+        // text views which holds the random numbers and are dragged
         mRandomNumber1TextView = (TextView) findViewById(R.id.random_number1_textview);
         mRandomNumber1TextView.setOnTouchListener(this);
         mRandomNumber2TextView = (TextView) findViewById(R.id.random_number2_textview);
@@ -296,6 +400,7 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         mRandomNumber4TextView = (TextView) findViewById(R.id.random_number4_textview);
         mRandomNumber4TextView.setOnTouchListener(this);
 
+        // target text views
         mMultipleOf2TextView = (TextView) findViewById(R.id.multiple_of_2_textview);
         mMultipleOf2TextView.setOnDragListener(this);
         mMultipleOf3TextView = (TextView) findViewById(R.id.multiple_of_3_textview);
@@ -305,14 +410,23 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
         mMultipleOf10TextView = (TextView) findViewById(R.id.multiple_of_10_textview);
         mMultipleOf10TextView.setOnDragListener(this);
 
+        // retrieve an instance from ConnectivityManager for checking connectivity later
         mConnectMgr = (ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
     }
 
+    /**
+     * Checks internet connection
+     * @return true if there is internet connectivity, false otherwise
+     */
     private boolean hasInternetConnection() {
         NetworkInfo networkInfo = mConnectMgr.getActiveNetworkInfo();
         return networkInfo != null && networkInfo.isConnected();
     }
 
+    /**
+     * Handler for @+id/retrieve_random_number_bttn
+     * @param v
+     */
     public void retrieveRandomNumbers(View v) {
         if (!hasInternetConnection()) {
             Toast.makeText(this,
@@ -321,15 +435,36 @@ public class MainActivity extends AppCompatActivity implements View.OnTouchListe
             return;
         }
         GetRandomNumbersTask task = new GetRandomNumbersTask();
+        // start asynchronous retrieval of random numbers
         task.execute(API_URL);
     }
 
+    /**
+     * Handler for @+id/clear_all_bttn
+     * @param v
+     */
     public void clearAll(View v) {
+        setAllRandomNumberTextVisible();
+        underlineAllRandomNumberTextView();
+        clearMultiplesTextView();
+    }
+
+    private void setAllRandomNumberTextVisible() {
+        mRandomNumber1TextView.setVisibility(View.VISIBLE);
+        mRandomNumber2TextView.setVisibility(View.VISIBLE);
+        mRandomNumber3TextView.setVisibility(View.VISIBLE);
+        mRandomNumber4TextView.setVisibility(View.VISIBLE);
+    }
+
+    private void underlineAllRandomNumberTextView() {
         String underline = getResources().getString(R.string.underline);
         mRandomNumber1TextView.setText(underline);
         mRandomNumber2TextView.setText(underline);
         mRandomNumber3TextView.setText(underline);
         mRandomNumber4TextView.setText(underline);
+    }
+
+    private void clearMultiplesTextView() {
         mMultipleOf2TextView.setText("");
         mMultipleOf3TextView.setText("");
         mMultipleOf5TextView.setText("");

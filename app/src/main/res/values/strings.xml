@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">AlanZheng_A3</string>
+    <string name="app_name">Counting Multiples</string>
     <string name="retrieve_random_numbers">Retrieve Random Numbers</string>
     <string name="clear_all">Clear All</string>
     <string name="multiples_of_2">Multiples of 2</string>
